@@ -33,6 +33,8 @@ var Errors = require('tchannel/errors.js');
 var TChannelJSON = require('tchannel/as/json');
 var TChannelThrift = require('tchannel/as/thrift');
 var TChannelEndpointHandler = require('tchannel/endpoint-handler');
+var pull = require('lodash/pull');
+var union = require('lodash/union');
 
 HyperbahnHandler.MAX_RELAY_AD_ATTEMPTS = 2;
 HyperbahnHandler.RELAY_AD_RETRY_TIME = 1 * 1000;
@@ -99,6 +101,10 @@ function HyperbahnHandler(options) {
         self.handleUnadvertise);
     self.tchannelJSON.register(self, 'relay-unad', self,
         self.handleRelayUnadvertise);
+    self.tchannelJSON.register(self, 'serviceNames', self,
+        self.handleServiceNames);
+    self.tchannelJSON.register(self, 'relay-serviceNames', self,
+        self.handleRelayServiceNames);
 
     self.tchannelThrift.register(self, 'Hyperbahn::discover', self,
         self.discover);
@@ -341,7 +347,7 @@ function sendRelay(opts, callback) {
 
         function onResponse(err, response) {
             if (response && response.ok) {
-                return callback(null, null);
+                return callback(null, response);
             }
 
             var codeName = Errors.classify(err);
@@ -355,7 +361,7 @@ function sendRelay(opts, callback) {
             } else {
                 self.logError(err, opts, response);
 
-                callback(null, null);
+                callback(err, null);
             }
         }
     }
@@ -583,6 +589,57 @@ function _getDiscoverHosts(serviceName, cb) {
         ok: true,
         body: {
             peers: hosts
+        }
+    });
+};
+
+HyperbahnHandler.prototype.handleServiceNames =
+function handleServiceNames(handler, req, head, body, cb) {
+    var nodes = handler.egressNodes.nodes();
+    var responses = [];
+    var finished = false;
+
+    var counter = 1 + nodes.length;
+    for (var i = 0; i < nodes.length; i++) {
+        handler.sendRelay({
+            hostPort: nodes[i],
+            inreq: req,
+            endpoint: 'relay-serviceNames'
+        }, onRelaySent);
+    }
+
+    onRelaySent();
+
+    function onRelaySent(err, resp) {
+        if (!err && resp && resp.ok === true) {
+            responses = union(responses, resp.body.serviceNames);
+        }
+        if (--counter <= 0) {
+            finish();
+        }
+    }
+
+    function finish() {
+        if (finished) {
+            return;
+        }
+        finished = true;
+        cb(null, {
+            ok: true,
+            body: {
+                serviceNames: responses
+            }
+        });
+    }
+};
+
+HyperbahnHandler.prototype.handleRelayServiceNames =
+function handleRelayServiceNames(handler, req, head, body, cb) {
+    var keys = Object.keys(handler.channel.topChannel.subChannels);
+    cb(null, {
+        ok: true,
+        body: {
+            serviceNames: pull(keys, 'autobahn', 'hyperbahn', 'ringpop')
         }
     });
 };
