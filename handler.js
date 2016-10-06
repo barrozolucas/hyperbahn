@@ -104,6 +104,8 @@ function HyperbahnHandler(options) {
         self.discover);
     self.tchannelThrift.register(self, 'Hyperbahn::discoverAffine', self,
         self.discoverAffine);
+    self.tchannelThrift.register(self, 'Hyperbahn::tagDiscover', self,
+        self.tagDiscover);
 
     self.relayAdTimeout = options.relayAdTimeout ||
         HyperbahnHandler.RELAY_AD_TIMEOUT;
@@ -452,6 +454,71 @@ function discoverAffine(handler, req, head, body, cb) {
     }
 
     handler._getDiscoverHosts(serviceName, cb);
+};
+
+HyperbahnHandler.prototype.tagDiscover =
+function tagDiscover(handler, req, head, body, cb) {
+    var serviceTags = body.query.serviceTags;
+    var responses = {};
+    var finished = false;
+
+    if (!Array.isArray(serviceTags) || serviceTags.length === 0) {
+        cb(null, {
+            ok: false,
+            body: InvalidServiceName({
+                serviceName: ''
+            }),
+            typeName: 'invalidServiceName'
+        });
+        return;
+    }
+
+    var counter = 1 + serviceTags.length;
+    for (var i = 0; i < serviceTags.length; i++) {
+        var serviceTag = serviceTags[i];
+
+        var topChannel = handler.channel.topChannel;
+        var svcchan = topChannel.handler.getOrCreateServiceChannel(serviceTag);
+
+        if (svcchan.serviceProxyMode === 'forward' &&
+            req.headers.cn !== 'hyperbahn'
+        ) {
+            handler._forwardToRemoteDiscover(
+                req,
+                svcchan,
+                {query: {serviceName: serviceTag}},
+                onDiscoverSent.bind(null, serviceTag)
+            );
+            continue;
+        }
+
+        handler._getDiscoverHosts(serviceTag, onDiscoverSent.bind(null, serviceTag));
+    }
+
+    onDiscoverSent();
+
+    function onDiscoverSent(serviceName, err, resp) {
+        if (!err && resp && resp.ok === true) {
+            responses[serviceName] = resp.body.peers;
+        }
+        if (--counter <= 0) {
+            finish();
+        }
+    }
+
+    function finish() {
+        if (finished) {
+            return;
+        }
+        finished = true;
+        cb(null, {
+            ok: true,
+            head: null,
+            body: {
+                peers: responses
+            }
+        });
+    }
 };
 
 HyperbahnHandler.prototype._forwardToRemoteDiscover =
