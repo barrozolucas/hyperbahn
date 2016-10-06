@@ -23,6 +23,7 @@
 var assert = require('assert');
 var inherits = require('util').inherits;
 var EventEmitter = require('tchannel/lib/event_emitter');
+var MemberStatus = require('ringpop/lib/membership/member').Status;
 
 module.exports = EgressNodes;
 
@@ -127,3 +128,24 @@ EgressNodes.prototype.isExitFor = function isExitFor(serviceName) {
     }
     return false;
 };
+
+EgressNodes.prototype.nodes = function nodes() {
+    var self = this;
+
+    assert(
+        self.ringpop !== null,
+        'EgressNodes#isExitFor cannot be called before EgressNodes has ' +
+            ' ringpop set'
+    );
+
+    var members = self.ringpop.membership.members;
+    var hosts = [];
+    for (var i = 0; i < members.length; i++) {
+        var member = members[i];
+        if (member.status === MemberStatus.alive) {
+            hosts.push(member.address);
+        }
+    }
+    return hosts;
+};
+
