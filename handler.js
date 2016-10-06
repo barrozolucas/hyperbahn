@@ -24,6 +24,7 @@
 
 var assert = require('assert');
 var util = require('util');
+var deepExtend = require('deep-extend');
 var fs = require('fs');
 var path = require('path');
 var setTimeout = require('timers').setTimeout;
@@ -156,24 +157,32 @@ function sendRelays(req, arg2, arg3, endpoint, cb) {
         var service = services[i];
         service.hostPort = req.connection.remoteName;
 
-        var serviceName = service.serviceName;
-        if (serviceName === '') {
-            continue;
+        var serviceNames = [service.serviceName];
+        if (service.serviceTags && service.serviceTags.length) {
+            serviceNames = serviceNames.concat(service.serviceTags);
         }
 
-        // TODO: cache / use sub-channel peers
-        var exitNodes = self.egressNodes.exitsFor(serviceName);
-        var exitHosts = Object.keys(exitNodes);
-
-        for (var j = 0; j < exitHosts.length; j++) {
-            var exitNode = exitHosts[j];
-
-            var relayReq = servicesByExitNode[exitNode];
-            if (!relayReq) {
-                relayReq = servicesByExitNode[exitNode] = [];
+        for (var j = 0; j < serviceNames.length; j++) {
+            var serviceName = serviceNames[j];
+            if (serviceName.length === 0) {
+                continue;
             }
 
-            relayReq.push(service);
+            // TODO: cache / use sub-channel peers
+            var exitNodes = self.egressNodes.exitsFor(serviceName);
+            var exitHosts = Object.keys(exitNodes);
+
+            var amendedService = deepExtend({}, service, {serviceName: serviceName});
+            for (var k = 0; k < exitHosts.length; k++) {
+                var exitNode = exitHosts[k];
+
+                var relayReq = servicesByExitNode[exitNode];
+                if (!relayReq) {
+                    relayReq = servicesByExitNode[exitNode] = [];
+                }
+
+                relayReq.push(amendedService);
+            }
         }
     }
 
